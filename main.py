@@ -31,6 +31,8 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = discord.Bot()
 
+currency_name = "gold"
+
 # Confirms bot is running
 @bot.event
 async def on_ready():
@@ -38,18 +40,28 @@ async def on_ready():
 
 ##### Admin Commands #####
 admin_commands = bot.create_group("admin", "Edit user & game config")
-
 @admin_commands.command(description="Sets balance of a user", pass_context=True)
-# FIGURE OUT HOW TO SET PERMISSIONS
-@bot.has_permissions(administrator=True)
-async def setbal(ctx, user:discord.User, amount:int):
-    try:
+async def setbal(ctx, member: discord.User, amount: int):
+    # If the user has permission
+    if ctx.author.guild_permissions.administrator:
+        # Initalizes the user's balance if they have not yet been initalized
+        cursor.execute("SELECT * FROM balance WHERE user_id = ?", 
+                   (member.id,))
+        if cursor.fetchone() is None:
+            cursor.execute(
+                "INSERT INTO balance (user_id, bal) VALUES (?, ?)", (
+                    member.id,
+                    amount
+                )
+            )
+            conn.commit()
+        # Updates the user's balance
         cursor.execute(
-            "UPDATE balance SET bal = ? WHERE user_id = ?", (amount, user.id))
+            "UPDATE balance SET bal = ? WHERE user_id = ?", (amount, member.id))
         conn.commit()
         embed = discord.Embed(
             title="Balance Set",
-            description=f"{user.name}'s balance has been set to {amount}!",
+            description=f"{member.name}'s balance has been set to {amount}!",
             color=discord.Color.green()
         )
         embed.set_author(
@@ -59,7 +71,8 @@ async def setbal(ctx, user:discord.User, amount:int):
         await ctx.respond(
             embed=embed
         )
-    except bot.MissingPermissions:
+    # Sends an error if the user does not have permission
+    else:
         embed = discord.Embed(
             title="Balance Set Error",
             description="You do not have permission to do this!",
@@ -72,14 +85,16 @@ async def setbal(ctx, user:discord.User, amount:int):
         await ctx.respond(
             embed=embed
         )
-        
+
 
 ##### User Commands #####
+# /hello command
 # Test Hello command
 @bot.command()
 async def hello(ctx):
     await ctx.respond("Hello!")
 
+### Character Stuffs ###
 # /create command
 # Define a command to create a new character
 @bot.command(description="Create a new character!")
@@ -114,6 +129,19 @@ async def create(ctx, *, character_name: str):
         )
     )
     conn.commit()
+    
+    # Initalize balance of a user if it has not been initalized already
+    cursor.execute("SELECT * FROM balance WHERE user_id = ?",
+                   (ctx.author.id,))
+    if cursor.fetchone() is None:
+        cursor.execute(
+            "INSERT INTO balance (user_id, bal) VALUES (?, ?)", (
+                ctx.author.id,
+                0
+            )
+        )
+        conn.commit()
+
     # Send a message to the user to confirm that the character has been created
     embed = discord.Embed(
         title="Character Created",
@@ -136,6 +164,7 @@ async def create(ctx, *, character_name: str):
     )
     await ctx.respond(embed=embed)
 
+# /delete command
 # Define a command to delete a character
 @bot.command(description="Delete your character!")
 async def delete(ctx):
@@ -173,6 +202,7 @@ async def delete(ctx):
     )
     await ctx.respond(embed=embed)
 
+# /stats command
 # Define a command to check a player character's stats
 @bot.command(description="Check your stats!")
 async def stats(ctx):
@@ -210,6 +240,131 @@ async def stats(ctx):
     )
     await ctx.respond(embed=embed)
 
+
+### Currency Stuffs ###
+# /balance command
+# Define a command to check a user's balance
+@bot.command(description="Check a user's balance!", pass_context=True)
+async def balance(ctx, member: discord.User = None):
+    # If optional user argument is not passed, use the author as the user
+    if member is None:
+        member = ctx.author
+    cursor.execute("SELECT * FROM balance WHERE user_id = ?", 
+                   (member.id,))
+    user = cursor.fetchone()
+    if user is None:
+        embed = discord.Embed(
+            title="Balance Error",
+            description=f"{member.display_name} has never created a character and does not have a balance!",
+            color=discord.Color.red()
+        )
+        embed.set_author(
+            name=ctx.author.display_name,
+            icon_url=ctx.author.display_avatar.url
+        )
+        await ctx.respond(
+            embed=embed
+        )
+    else:
+        embed = discord.Embed(
+            title="Balance",
+            description=f"{member.name}'s balance is {user[2]}!",
+            color=discord.Color.green()
+        )
+        embed.set_author(
+            name=ctx.author.display_name,
+            icon_url=ctx.author.display_avatar.url
+        )
+        await ctx.respond(
+            embed=embed
+        )
+
+# /give command
+# Define a command to let the user give currency to another user
+@bot.command(description=f"Give a player some {currency_name}!")
+async def give(ctx, member: discord.User, amount: int):
+    amount = abs(amount)
+    # Checks if the giver & receiver have balances
+    cursor.execute("SELECT * FROM balance where user_id = ?",
+                   (ctx.author.id,))
+    giver = cursor.fetchone()
+    cursor.execute("SELECT * FROM balance where user_id = ?",
+                   (member.id,))
+    receiver = cursor.fetchone()
+    if giver is None:
+        embed = discord.Embed(
+            title="Give Error",
+            description=f"You do not have a balance! Create a character first with /create!",
+            color=discord.Color.red()
+        )
+        embed.set_author(
+            name=ctx.author.display_name,
+            icon_url=ctx.author.display_avatar.url
+        )
+        await ctx.respond(
+            embed=embed
+        )
+        return
+    if receiver is None:
+        embed = discord.Embed(
+            title="Give Error",
+            description=f"{member.display_name} does not have a balance! Create a character first with /create!",
+            color=discord.Color.red()
+        )
+        embed.set_author(
+            name=ctx.author.display_name,
+            icon_url=ctx.author.display_avatar.url
+        )
+        await ctx.respond(
+            embed=embed
+        )
+        return
+    # Checks if the giver has enough currency
+    if giver[2] < amount:
+        embed = discord.Embed(
+            title="Give Error",
+            description=f"You have insufficient balance!",
+            color=discord.Color.red()
+        )
+        embed.set_author(
+            name=ctx.author.display_name,
+            icon_url=ctx.author.display_avatar.url
+        )
+        await ctx.respond(
+            embed=embed
+        )
+        return
+    # Gives currency from the giver to the receiver
+    cursor.execute(
+        "UPDATE balance SET bal = bal - ? WHERE user_id = ?", (
+            amount,
+            ctx.author.id
+        )
+    )
+    conn.commit()
+    cursor.execute(
+        "UPDATE balance SET bal = bal + ? where user_id = ?", (
+            amount,
+            member.id
+        )
+    )
+    conn.commit()
+    embed = discord.Embed(
+        title="Giving Succeeded",
+        description=f"You gave {amount} {currency_name} to {member.display_name}!",
+        color=discord.Color.green()
+    )
+    embed.set_author(
+        name=ctx.author.display_name,
+        icon_url=ctx.author.display_avatar.url
+    )
+    await ctx.respond(
+        embed=embed
+    )
+    
+
+### Actions ###
+# /attack command
 # Define a command to attack (and for now generate) an enemy
 @bot.command(description="Fight an enemy!")
 async def attack(ctx, *, enemy_name: str):
@@ -249,6 +404,7 @@ async def attack(ctx, *, enemy_name: str):
         enemyGeneration = generation.generate_enemy(enemy_name)
         cursor.execute("INSERT INTO enemies (user_id, enemy_name, health, strength) VALUES (?, ?, ?, ?)",
                        (ctx.author.id, enemyGeneration['name'], enemyGeneration['health'], enemyGeneration['strength']))
+        conn.commit()
         cursor.execute(
             "SELECT * FROM enemies WHERE user_id = ?", (ctx.author.id,))
         enemyTuple = cursor.fetchone()
@@ -327,6 +483,7 @@ async def attack(ctx, *, enemy_name: str):
         if character[3] <= 0:
             cursor.execute(
                 "DELETE FROM enemies WHERE user_id = ?", (ctx.author.id,))
+            conn.commit()
             cursor.execute(
                 "DELETE FROM characters WHERE user_id = ?", (ctx.author.id,))
             conn.commit()
