@@ -6,6 +6,7 @@ import random
 from dotenv import load_dotenv
 import generation
 import helpers
+from discord.ext import commands
 
 load_dotenv()
 TOKEN = os.getenv('botDISCORD_TOKEN')
@@ -67,6 +68,11 @@ currency_name = "gold"
 async def on_ready():
     print(f'We have logged in as {bot.user}')
 
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.CommandOnCooldown):
+        await ctx.send(f"{round(error.retry_after, 2)} seconds left")
+
 ##### Admin Commands #####
 admin_commands = bot.create_group("admin", "Edit user & game config")
 
@@ -118,6 +124,7 @@ async def setbal(ctx, member: discord.User, amount: int):
 # /hello command
 # Test Hello command
 @bot.command()
+@commands.cooldown(1, 5, commands.BucketType.user)
 async def hello(ctx):
     await ctx.respond("Hello!")
 
@@ -225,7 +232,6 @@ async def stats(ctx):
     # If user has a character, show it's stats
     character = existCheck[2]
     embed = discord.Embed(
-        # TODO Change index so it can work as a dictionary
         title=f"{character[2]}'s Stats",
         color=discord.Color.green()
     )
@@ -465,7 +471,6 @@ async def rest(ctx):
         )
     )
     conn.commit()
-
     embed = discord.Embed(
         title=f"{character[2]} Rested Succesfully!",
         color=discord.Color.green()
