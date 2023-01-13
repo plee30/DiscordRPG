@@ -25,6 +25,12 @@ def character_existence_check(ctx, title: str, description: str):
         return (False, embed, curCursor)
     else:
         return (True, embed, curCursor)
+
+def get_avatar_url(user_id):
+    cursor.execute("SELECT * FROM avatars WHERE user_id = ?", 
+                   (user_id,))
+    user = cursor.fetchone()
+    return user[1]
     
 def add_sender_as_author(ctx, embed):
     embed.set_author(

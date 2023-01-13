@@ -18,9 +18,10 @@ cursor = conn.cursor()
 # Avatar table
 cursor.execute(
     """CREATE TABLE IF NOT EXISTS avatars (
-        user TEXT NOT NULL, 
-        photo BLOB NOT NULL
+        user_id TEXT PRIMARY KEY, 
+        photo_url TEXT
     )""")
+
 # Character table
 # 0 = id
 # 1 = user_id
@@ -61,17 +62,19 @@ bot = discord.Bot()
 currency_name = "gold"
 
 ##### Bot functions ######
-
-
 # Confirms bot is running
 @bot.event
 async def on_ready():
     print(f'We have logged in as {bot.user}')
 
 @bot.event
-async def on_command_error(ctx, error):
+async def on_application_command_error(ctx, error):
     if isinstance(error, commands.CommandOnCooldown):
-        await ctx.send(f"{round(error.retry_after, 2)} seconds left")
+        cooldown = round(error.retry_after)
+        if cooldown == 1:
+            await ctx.respond(f"Command on cooldown! Try again in 1 second")
+        else:
+            await ctx.respond(f"Command on cooldown! Try again in {cooldown} seconds")            
 
 ##### Admin Commands #####
 admin_commands = bot.create_group("admin", "Edit user & game config")
@@ -131,8 +134,6 @@ async def hello(ctx):
 ### Character Stuffs ###
 # /create command
 # Define a command to create a new character
-
-
 @bot.command(description="Create a new character!")
 async def create(ctx, *, character_name: str):
     # Check if the user already has a character, if they do, displays an error
@@ -157,8 +158,7 @@ async def create(ctx, *, character_name: str):
     )
     conn.commit()
     # Initalize balance of a user if it has not been initalized already
-    cursor.execute("SELECT * FROM balance WHERE user_id = ?",
-                   (ctx.author.id,))
+    cursor.execute("SELECT * FROM balance WHERE user_id = ?", (ctx.author.id,))
     if cursor.fetchone() is None:
         cursor.execute(
             "INSERT INTO balance (user_id, bal) VALUES (?, ?)", (
@@ -188,8 +188,6 @@ async def create(ctx, *, character_name: str):
 
 # /delete command
 # Define a command to delete a character
-
-
 @bot.command(description="Delete your character!")
 async def delete(ctx):
     # Check if the user has a character, if they do not, displays an error
@@ -216,8 +214,6 @@ async def delete(ctx):
 
 # /stats command
 # Define a command to check a player character's stats
-
-
 @bot.command(description="Check your stats!")
 async def stats(ctx):
     # Check if the user has a character, if they do not, displays an error
@@ -235,6 +231,7 @@ async def stats(ctx):
         title=f"{character[2]}'s Stats",
         color=discord.Color.green()
     )
+    embed.set_image(url=helpers.get_avatar_url(ctx.author.id))
     embed.add_field(
         name="Health",
         value=f"{character[4]}",
@@ -278,8 +275,6 @@ async def balance(ctx, member: discord.User = None):
 
 # /give command
 # Define a command to let the user give currency to another user
-
-
 @bot.command(description=f"Give a player some {currency_name}!")
 async def give(ctx, member: discord.User, amount: int):
     amount = abs(amount)
@@ -478,33 +473,40 @@ async def rest(ctx):
     )
 
 
-# TODO /avatar:
+# TODO /avatar: Change image size
 # Create /avatar command that allows users to upload an image or insert a URL to an image,
 # stores the image in a SQLite3 table, and confirms the image has been uploaded
 # & sends the image in the text channel.
 # Define a command that allows users to upload an avatar
-# @bot.command(description="Sets your character's avatar.")
-# async def avatar(ctx, url: str):
-#     userId = ctx.author.id
-#     avatarFileName = "avatar_" + str(userId) + ".jpg"
-#     # Download the avatar image
-#     response = requests.get(url)
-#     # Check the size of the image
-#     if len(response.content) > 1024 * 1024:  # 1MB
-#         # The image is too large
-#         await ctx.send("The image is too large. Please upload an image less than 1MB.")
-#     else:
-#         # # Save the avatar image to a file
-#         # open(avatarFileName, "wb").write(response.content)
-#         # Open the image file in binary mode
-#         with open(avatarFileName, "rb") as f:
-#             # Read the file content
-#             photoData = f.read()
-#         # Insert the image into the table
-#         cursor.execute("INSERT INTO avatars VALUES (?, ?)", (userId, photoData))
-#         conn.commit()
-
-#     # Send a message to the user to confirm that their avatar has been changed
-#     await ctx.send("Your avatar has been changed.")
+@bot.command(description="Sets your character's avatar.")
+async def avatar(ctx, url: str):
+    userId = ctx.author.id
+    # Insert the image into the table
+    cursor.execute(
+        "INSERT OR REPLACE INTO avatars (user_id, photo_url) VALUES (?, ?)", (
+            userId, 
+            url,
+        )
+    )
+    conn.commit()
+    cursor.execute("SELECT * FROM avatars WHERE user_id = ?", 
+                   (ctx.author.id,))
+    user = cursor.fetchone()
+    embed = discord.Embed(
+        title="Avatar Changed!",
+        color=discord.Color.green()
+    )
+    helpers.add_sender_as_author(ctx, embed)
+    try:
+        embed.set_image(url=user[1])
+        await ctx.respond(embed=embed)
+    except:
+        embed = discord.Embed(
+            title="Avatar Error!",
+            description=f"Image could not be loaded, please try again, or use another image!",
+            color=discord.Color.red()
+        )
+        helpers.add_sender_as_author(ctx, embed)
+        await ctx.respond(embed=embed)
 
 bot.run(TOKEN)
